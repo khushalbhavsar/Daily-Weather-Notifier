@@ -1,0 +1,10 @@
+{
+  "name": "daily-notifier",
+  "version": "1.0.0",
+  "description": "Daily notifier Lambda to fetch weather and send notifications",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1350.0",
+    "axios": "^1.4.0"
+  }
+}

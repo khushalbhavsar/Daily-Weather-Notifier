@@ -1,0 +1,10 @@
+{
+  "name": "subscription-handler",
+  "version": "1.0.0",
+  "description": "Lambda for subscribe/unsubscribe operations",
+  "main": "handler.js",
+  "dependencies": {
+    "aws-sdk": "^2.1350.0",
+    "joi": "^17.9.2"
+  }
+}

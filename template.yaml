@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Daily Weather Notifier with subscription UI
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+
+Resources:
+  AppApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowOrigin: "'*'"
+
+  SubscribersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Subscribers
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  SubscriptionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SubscriptionHandler
+      Handler: handler.handler
+      CodeUri: lambdas/subscription-handler/
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubscribersTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+      Events:
+        SubscribeApi:
+          Type: Api
+          Properties:
+            Path: /subscribe
+            Method: post
+            RestApiId: !Ref AppApi
+        UnsubscribeApi:
+          Type: Api
+          Properties:
+            Path: /unsubscribe
+            Method: post
+            RestApiId: !Ref AppApi
+        HealthApi:
+          Type: Api
+          Properties:
+            Path: /health
+            Method: get
+            RestApiId: !Ref AppApi
+
+  DailyNotifierFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DailyWeatherNotifier
+      Handler: handler.handler
+      CodeUri: lambdas/daily-notifier/
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubscribersTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+                - sns:Publish
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource: '*'
+      Environment:
+        Variables:
+          SUBSCRIBERS_TABLE: !Ref SubscribersTable
+          SSM_WEATHER_PARAM: /daily-weather-notifier/weather-api-key
+          SES_FROM_EMAIL: "you@yourdomain.com"
+
+  DailyScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: DailyWeatherSchedule
+      # 02:30 UTC = 08:00 IST; adjust cron as needed
+      ScheduleExpression: "cron(30 2 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt DailyNotifierFunction.Arn
+          Id: DailyNotifierTarget
+
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DailyNotifierFunction
+      Action: 'lambda:InvokeFunction'
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyScheduleRule.Arn
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint"
+    Value: !Sub "https://${AppApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
